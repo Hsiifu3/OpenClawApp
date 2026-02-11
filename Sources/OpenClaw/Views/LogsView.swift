@@ -9,23 +9,74 @@ struct LogsView: View {
     @State private var errorMessage: String?
     @State private var autoRefresh = true
     @State private var refreshTask: Task<Void, Never>?
+    @State private var searchText = ""
+    @State private var levelFilter: LogLevel = .all
+
+    enum LogLevel: String, CaseIterable {
+        case all = "全部"
+        case error = "Error"
+        case warn = "Warn"
+        case info = "Info"
+    }
+
+    private var filteredLines: [String] {
+        logLines.filter { line in
+            let matchesLevel: Bool
+            switch levelFilter {
+            case .all: matchesLevel = true
+            case .error: matchesLevel = line.contains("ERROR") || line.contains("error")
+            case .warn: matchesLevel = line.contains("WARN") || line.contains("warn")
+            case .info: matchesLevel = !line.contains("ERROR") && !line.contains("error") && !line.contains("WARN") && !line.contains("warn") && !line.contains("DEBUG") && !line.contains("debug")
+            }
+            let matchesSearch = searchText.isEmpty || line.localizedCaseInsensitiveContains(searchText)
+            return matchesLevel && matchesSearch
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // 工具栏
-            HStack {
+            HStack(spacing: 10) {
                 Label("日志", systemImage: "doc.text")
                     .font(.system(size: 13, weight: .medium))
+
+                // 搜索框
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    TextField("搜索日志...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .frame(maxWidth: 200)
+
+                // 级别过滤
+                Picker("", selection: $levelFilter) {
+                    ForEach(LogLevel.allCases, id: \.self) { level in
+                        Text(level.rawValue).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+
                 Spacer()
-                Text("\(logLines.count) 行")
+
+                Text("\(filteredLines.count)/\(logLines.count) 行")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+
                 Toggle("自动刷新", isOn: $autoRefresh)
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .onChange(of: autoRefresh) { _, newValue in
                         if newValue { startAutoRefresh() } else { stopAutoRefresh() }
                     }
+
                 Button {
                     logLines = []
                     cursor = nil
@@ -36,6 +87,17 @@ struct LogsView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+                Button {
+                    logLines = []
+                    cursor = nil
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("清空日志缓存")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -59,15 +121,15 @@ struct LogsView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(logLines.enumerated()), id: \.offset) { idx, line in
+                            ForEach(Array(filteredLines.enumerated()), id: \.offset) { idx, line in
                                 logRow(line)
                                     .id(idx)
                             }
                         }
                         .padding(12)
                     }
-                    .onChange(of: logLines.count) { _, _ in
-                        if autoRefresh, let last = logLines.indices.last {
+                    .onChange(of: filteredLines.count) { _, _ in
+                        if autoRefresh, let last = filteredLines.indices.last {
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo(last, anchor: .bottom)
                             }
@@ -86,11 +148,22 @@ struct LogsView: View {
     }
 
     private func logRow(_ line: String) -> some View {
-        Text(line)
+        Text(highlightedLine(line))
             .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(logColor(line))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func highlightedLine(_ line: String) -> AttributedString {
+        var attr = AttributedString(line)
+        attr.foregroundColor = logColor(line)
+
+        // 高亮搜索词
+        if !searchText.isEmpty, let range = attr.range(of: searchText, options: .caseInsensitive) {
+            attr[range].backgroundColor = .yellow.opacity(0.3)
+            attr[range].foregroundColor = .primary
+        }
+        return attr
     }
 
     private func logColor(_ line: String) -> Color {

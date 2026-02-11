@@ -8,82 +8,132 @@ struct NodesView: View {
     @State private var errorMessage: String?
 
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.adaptive(minimum: 260), spacing: 16)
     ]
 
     var body: some View {
         ScrollView {
-            if isLoading {
-                ProgressView("加载中...")
-                    .frame(maxWidth: .infinity).padding(.top, 100)
-            } else if let error = errorMessage {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 32)).foregroundStyle(.secondary)
-                    Text(error).foregroundStyle(.secondary).font(.caption)
-                    Button("重试") { Task { await loadData() } }
+            VStack(spacing: 24) {
+                // Header
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("节点管理")
+                            .font(.largeTitle.bold())
+                        let connectedCount = nodes.filter { $0.connected == true }.count
+                        Text("\(connectedCount)/\(nodes.count) 个节点在线")
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await loadData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .frame(maxWidth: .infinity).padding(.top, 100)
-            } else if nodes.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "desktopcomputer.trianglebadge.exclamationmark")
-                        .font(.system(size: 40)).foregroundStyle(.quaternary)
-                    Text("暂无已配对的节点").foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity).padding(.top, 100)
-            } else {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(nodes, id: \.stableId) { node in
-                        nodeCard(node)
+                .padding(.top, 10)
+
+                if isLoading {
+                    ProgressView("加载中...")
+                        .frame(maxWidth: .infinity)
+                        .padding(40)
+                } else if let error = errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 32)).foregroundStyle(.secondary)
+                        Text(error).foregroundStyle(.secondary).font(.caption)
+                        Button("重试") { Task { await loadData() } }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(40)
+                } else if nodes.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "desktopcomputer.trianglebadge.exclamationmark")
+                            .font(.system(size: 40)).foregroundStyle(.quaternary)
+                        Text("暂无已配对的节点").foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(40)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(nodes, id: \.stableId) { node in
+                            nodeCard(node)
+                        }
                     }
                 }
-                .padding(20)
             }
+            .padding(24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color(nsColor: .windowBackgroundColor))
         .task { await loadData() }
     }
 
     private func nodeCard(_ node: NodeInfo) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Circle()
-                        .fill(node.connected == true ? Color.green : Color.gray)
-                        .frame(width: 8, height: 8)
-                    Text(node.displayName ?? node.name ?? node.id ?? "未知")
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                }
-                if let platform = node.platform {
-                    HStack(spacing: 4) {
-                        Image(systemName: platformIcon(platform))
-                            .font(.system(size: 10))
-                        Text(platform)
-                            .font(.system(size: 11))
+        let isOnline = node.connected == true
+        let statusColor: Color = isOnline ? .green : .gray
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: platformIcon(node.platform ?? ""))
+                    .font(.title2)
+                    .foregroundColor(statusColor)
+                    .frame(width: 36, height: 36)
+                    .background(statusColor.opacity(0.1))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(node.displayName ?? node.name ?? node.id ?? "未知")
+                            .font(.headline)
+                            .lineLimit(1)
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 8, height: 8)
                     }
-                    .foregroundStyle(.secondary)
+                    if let platform = node.platform {
+                        Text(platform)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Spacer()
+            }
+
+            Divider()
+
+            VStack(spacing: 6) {
                 if let caps = node.capabilities, !caps.isEmpty {
-                    Text(caps.joined(separator: " · "))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Image(systemName: "cpu")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(caps.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 if let ts = node.lastSeenAtMs ?? node.lastSeenAt {
-                    Text(relativeTime(ts))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text("最后在线: \(relativeTime(ts))")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
-        } label: {
-            Label(node.name ?? "节点", systemImage: "desktopcomputer")
-                .font(.system(size: 12, weight: .medium))
         }
-        .backgroundStyle(.regularMaterial)
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(statusColor.opacity(0.2), lineWidth: 1)
+        )
     }
 
     private func platformIcon(_ p: String) -> String {

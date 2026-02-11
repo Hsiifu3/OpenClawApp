@@ -5,6 +5,7 @@ struct AgentsView: View {
 
     @State private var agents: [AgentInfo] = []
     @State private var defaultId: String?
+    @State private var identities: [String: AgentIdentity] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -25,9 +26,13 @@ struct AgentsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                    Image(systemName: "person.crop.circle.badge.gearshape")
-                        .font(.largeTitle)
-                        .foregroundColor(.purple.opacity(0.3))
+                    Button {
+                        Task { await loadData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 .padding(.top, 10)
 
@@ -60,22 +65,28 @@ struct AgentsView: View {
 
     private func agentCard(_ agent: AgentInfo) -> some View {
         let isDefault = agent.id == defaultId
-        
+        let identity = identities[agent.id]
+
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                // Avatar Area
+                // Avatar 区域 — 优先使用 identity 的 emoji
                 ZStack {
                     Circle()
                         .fill(Color.purple.opacity(0.1))
                         .frame(width: 48, height: 48)
-                    Text(String((agent.name ?? agent.id).prefix(1)).uppercased())
-                        .font(.title2.bold())
-                        .foregroundColor(.purple)
+                    if let emoji = identity?.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 24))
+                    } else {
+                        Text(String((agent.name ?? agent.id).prefix(1)).uppercased())
+                            .font(.title2.bold())
+                            .foregroundColor(.purple)
+                    }
                 }
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text(agent.name ?? agent.id)
+                        Text(identity?.name ?? agent.name ?? agent.id)
                             .font(.headline)
                             .lineLimit(1)
                         if isDefault {
@@ -91,10 +102,10 @@ struct AgentsView: View {
                 }
                 Spacer()
             }
-            
+
             Divider()
-            
-            // Details
+
+            // 详情
             VStack(spacing: 8) {
                 if let model = agent.model?.primary {
                     HStack {
@@ -105,7 +116,7 @@ struct AgentsView: View {
                         StatusBadge(text: model, color: .blue)
                     }
                 }
-                
+
                 if let ws = agent.workspace {
                     InfoRow(label: "工作区", value: ws)
                 }
@@ -132,9 +143,25 @@ struct AgentsView: View {
             agents = resp.agents ?? []
             defaultId = resp.defaultId
             isLoading = false
+
+            // 并行加载每个代理的身份信息
+            for agent in agents {
+                Task {
+                    await loadIdentity(agent.id)
+                }
+            }
         } catch {
             isLoading = false
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadIdentity(_ agentId: String) async {
+        do {
+            let identity: AgentIdentity = try await appState.gateway.request("agent.identity.get", params: ["agentId": agentId])
+            identities[agentId] = identity
+        } catch {
+            // 静默处理 — 身份信息非必需
         }
     }
 }

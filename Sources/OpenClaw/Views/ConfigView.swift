@@ -12,6 +12,9 @@ struct ConfigView: View {
     @State private var configHash: String?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isSaving = false
+    @State private var saveMessage: String?
+    @State private var saveIsError = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,11 +23,35 @@ struct ConfigView: View {
                 Label("配置文件", systemImage: "gearshape")
                     .font(.system(size: 13, weight: .medium))
                 Spacer()
+
+                if let msg = saveMessage {
+                    Label(msg, systemImage: saveIsError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(saveIsError ? .red : .green)
+                        .transition(.opacity)
+                }
+
                 if let hash = configHash {
                     Text("Hash: \(hash.prefix(8))…")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
+
+                if isSaving {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Button {
+                    Task { await saveAndApply() }
+                } label: {
+                    Label("保存并应用", systemImage: "checkmark.circle")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isSaving || isLoading)
+
                 Button {
                     Task { await loadData() }
                 } label: {
@@ -53,7 +80,7 @@ struct ConfigView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TextEditor(text: .constant(configText))
+                TextEditor(text: $configText)
                     .font(.system(size: 12, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .background(.background)
@@ -64,7 +91,7 @@ struct ConfigView: View {
     }
 
     private func loadData() async {
-        isLoading = true; errorMessage = nil
+        isLoading = true; errorMessage = nil; saveMessage = nil
         guard await appState.gateway.waitForConnection() else {
             isLoading = false; errorMessage = "无法连接到 Gateway"; return
         }
@@ -76,5 +103,27 @@ struct ConfigView: View {
         } catch {
             isLoading = false; errorMessage = error.localizedDescription
         }
+    }
+
+    private func saveAndApply() async {
+        isSaving = true; saveMessage = nil
+        do {
+            // 保存配置
+            let setResp: ConfigSetResponse = try await appState.gateway.request("config.set", params: ["raw": configText])
+            if let hash = setResp.hash { configHash = hash }
+
+            // 应用配置
+            let _: ConfigApplyResponse = try await appState.gateway.request("config.apply")
+
+            withAnimation { saveMessage = "已保存并应用"; saveIsError = false }
+            // 3 秒后清除提示
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation { saveMessage = nil }
+            }
+        } catch {
+            withAnimation { saveMessage = error.localizedDescription; saveIsError = true }
+        }
+        isSaving = false
     }
 }

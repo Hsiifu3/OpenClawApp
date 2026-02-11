@@ -34,9 +34,13 @@ struct SkillsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                    Image(systemName: "puzzle.piece.extension")
-                        .font(.largeTitle)
-                        .foregroundColor(.blue.opacity(0.3))
+                    Button {
+                        Task { await loadData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 .padding(.top, 10)
 

@@ -9,6 +9,8 @@ struct OverviewView: View {
     @State private var models: [ModelInfo] = []
     @State private var cronStatus: CronStatusResponse?
     @State private var nodes: [NodeInfo] = []
+    @State private var channelOrder: [String] = []
+    @State private var channelAccounts: [String: [ChannelsStatusResponse.ChannelAccount]] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isPulsing = false
@@ -34,6 +36,13 @@ struct OverviewView: View {
                     if !isLoading {
                         StatusBadge(text: statusText, color: statusColor)
                     }
+                    Button {
+                        Task { await loadData() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 .padding(.top, 10)
 
@@ -54,10 +63,10 @@ struct OverviewView: View {
                     .padding(40)
                 } else {
                     LazyVGrid(columns: columns, spacing: 16) {
-                        // Gateway Status (Special Custom Card)
+                        // Gateway 状态（特殊卡片）
                         gatewayStatusCard
-                        
-                        // Active Sessions
+
+                        // 活跃会话
                         StatCard(
                             title: "活跃会话",
                             value: "\(sessions.count)",
@@ -65,8 +74,8 @@ struct OverviewView: View {
                             icon: "bubble.left.and.bubble.right.fill",
                             color: .blue
                         )
-                        
-                        // Models
+
+                        // 可用模型
                         StatCard(
                             title: "可用模型",
                             value: "\(models.count)",
@@ -74,8 +83,8 @@ struct OverviewView: View {
                             icon: "cpu.fill",
                             color: .purple
                         )
-                        
-                        // Cron Jobs
+
+                        // 定时任务
                         StatCard(
                             title: "定时任务",
                             value: "\(cronStatus?.jobCount ?? 0)",
@@ -83,25 +92,28 @@ struct OverviewView: View {
                             icon: "clock.arrow.2.circlepath",
                             color: .orange
                         )
-                        
-                        // Nodes
-                        let connectedCount = nodes.filter { $0.connected == true }.count
+
+                        // 通道状态
+                        channelsStatCard
+
+                        // 节点状态
+                        let connectedNodeCount = nodes.filter { $0.connected == true }.count
                         StatCard(
                             title: "节点状态",
-                            value: "\(connectedCount)/\(nodes.count)",
-                            subtext: "\(connectedCount) 个在线",
+                            value: "\(connectedNodeCount)/\(nodes.count)",
+                            subtext: "\(connectedNodeCount) 个在线",
                             icon: "network",
                             color: .green
                         )
-                        
-                        // System Info (Custom)
+
+                        // 系统信息（特殊卡片）
                         systemInfoCard
                     }
                 }
             }
             .padding(24)
         }
-        .background(Color(nsColor: .windowBackgroundColor)) // Native background
+        .background(Color(nsColor: .windowBackgroundColor))
         .task {
             await loadData()
             withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
@@ -110,7 +122,7 @@ struct OverviewView: View {
         }
     }
 
-    // MARK: - Special Cards
+    // MARK: - 特殊卡片
 
     private var gatewayStatusCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -129,15 +141,15 @@ struct OverviewView: View {
                         .fill(statusColor.opacity(isPulsing && appState.gatewayStatus == .connecting ? 0.3 : 0.1))
                         .frame(width: 32, height: 32)
                         .scaleEffect(isPulsing && appState.gatewayStatus == .connecting ? 1.2 : 1.0)
-                    
+
                     Circle()
                         .fill(statusColor)
                         .frame(width: 12, height: 12)
                 }
             }
-            
+
             Divider()
-            
+
             VStack(spacing: 8) {
                 if let v = health?.version ?? status?.version {
                     InfoRow(label: "版本", value: v)
@@ -154,9 +166,23 @@ struct OverviewView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
         )
-        // Simple hover effect can be added here if desired, or rely on StatCard style
     }
-    
+
+    private var channelsStatCard: some View {
+        let connectedChannels = channelOrder.filter { ch in
+            (channelAccounts[ch] ?? []).contains { $0.connected == true }
+        }.count
+        let totalAccounts = channelAccounts.values.flatMap { $0 }.count
+
+        return StatCard(
+            title: "通道状态",
+            value: "\(connectedChannels)/\(channelOrder.count)",
+            subtext: "\(totalAccounts) 个账号",
+            icon: "antenna.radiowaves.left.and.right",
+            color: .teal
+        )
+    }
+
     private var systemInfoCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -176,9 +202,9 @@ struct OverviewView: View {
                     .background(Color.gray.opacity(0.1))
                     .clipShape(Circle())
             }
-            
+
             Divider()
-            
+
             if let nodeVer = status?.nodeVersion {
                 InfoRow(label: "Node.js", value: nodeVer)
             }
@@ -230,7 +256,6 @@ struct OverviewView: View {
         isLoading = true
         errorMessage = nil
 
-        // Wait for connection if not connected
         if appState.gatewayStatus != .connected {
             for _ in 0..<20 {
                 try? await Task.sleep(for: .milliseconds(500))
@@ -251,14 +276,17 @@ struct OverviewView: View {
             async let modelsReq: ModelsListResponse = gateway.request("models.list")
             async let cronReq: CronStatusResponse = gateway.request("cron.status")
             async let nodesReq: NodeListResponse = gateway.request("node.list")
+            async let channelsReq: ChannelsStatusResponse = gateway.request("channels.status")
 
-            let (s, h, sess, m, c, n) = try await (statusReq, healthReq, sessionsReq, modelsReq, cronReq, nodesReq)
+            let (s, h, sess, m, c, n, ch) = try await (statusReq, healthReq, sessionsReq, modelsReq, cronReq, nodesReq, channelsReq)
             status = s
             health = h
             sessions = sess.sessions ?? []
             models = m.models ?? []
             cronStatus = c
             nodes = n.nodes ?? []
+            channelOrder = ch.channelOrder ?? []
+            channelAccounts = ch.channelAccounts ?? [:]
             isLoading = false
         } catch {
             isLoading = false

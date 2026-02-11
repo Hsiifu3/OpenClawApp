@@ -218,6 +218,32 @@ struct ChatMessage: Decodable, Identifiable {
     }
 }
 
+// MARK: - Cron Runs
+
+struct CronRunsResponse: Decodable {
+    let runs: [CronRun]?
+}
+
+struct CronRun: Decodable, Identifiable {
+    let id: String
+    let status: String?
+    let startedAtMs: Double?
+    let finishedAtMs: Double?
+    let durationMs: Double?
+    let error: String?
+}
+
+// MARK: - Config Set/Apply
+
+struct ConfigSetResponse: Decodable {
+    let ok: Bool?
+    let hash: String?
+}
+
+struct ConfigApplyResponse: Decodable {
+    let ok: Bool?
+}
+
 // MARK: - Logs
 
 struct LogsTailResponse: Decodable {
