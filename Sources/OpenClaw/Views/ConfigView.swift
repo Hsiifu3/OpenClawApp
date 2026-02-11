@@ -1,0 +1,80 @@
+import SwiftUI
+
+struct ConfigGetResponse: Decodable {
+    let raw: String?
+    let hash: String?
+}
+
+struct ConfigView: View {
+    @Environment(AppState.self) private var appState
+
+    @State private var configText: String = ""
+    @State private var configHash: String?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 工具栏
+            HStack {
+                Label("配置文件", systemImage: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                if let hash = configHash {
+                    Text("Hash: \(hash.prefix(8))…")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+                Button {
+                    Task { await loadData() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
+
+            Divider()
+
+            // 内容
+            if isLoading {
+                ProgressView("加载中...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = errorMessage {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 32)).foregroundStyle(.secondary)
+                    Text(error).foregroundStyle(.secondary).font(.caption)
+                    Button("重试") { Task { await loadData() } }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: .constant(configText))
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .background(.background)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task { await loadData() }
+    }
+
+    private func loadData() async {
+        isLoading = true; errorMessage = nil
+        guard await appState.gateway.waitForConnection() else {
+            isLoading = false; errorMessage = "无法连接到 Gateway"; return
+        }
+        do {
+            let resp: ConfigGetResponse = try await appState.gateway.request("config.get")
+            configText = resp.raw ?? "{}"
+            configHash = resp.hash
+            isLoading = false
+        } catch {
+            isLoading = false; errorMessage = error.localizedDescription
+        }
+    }
+}

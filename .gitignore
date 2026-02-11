@@ -1,0 +1,15 @@
+# Build
+.build/
+*.app/
+
+# OpenClaw agent files
+AGENTS.md
+SOUL.md
+IDENTITY.md
+USER.md
+TOOLS.md
+HEARTBEAT.md
+
+# Logs
+*.log
+gateway-debug.log
